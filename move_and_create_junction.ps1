@@ -15,28 +15,10 @@ function Select-Folder($prompt) {
         exit
     }
 }
-#! Test
-# Vérifie si le script est exécuté en tant qu'administrateur
-# if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(`
-#     [Security.Principal.WindowsBuiltInRole]::Administrator)) {
 
-#     Write-Host "Redémarrage du script avec les droits administrateur..."
-    
-#     # Relance le script avec les privilèges administrateur
-#     $psi = New-Object System.Diagnostics.ProcessStartInfo
-#     $psi.FileName = "powershell.exe"
-#     $psi.Arguments = "-ExecutionPolicy Bypass -File `"$PSCommandPath`""
-#     $psi.Verb = "runas"
-#     try {
-#         [System.Diagnostics.Process]::Start($psi) | Out-Null
-#     } catch {
-#         Write-Host -ForegroundColor Red "Le script a besoin des droits administrateur pour fonctionner."
-#     }
-#     exit
-# }
-#! Fin Test
+# --- Sélection des dossiers ---
 
-# Sélectionner le dossier à déplacer (source)
+# Dossier source
 $sourceFolder = Select-Folder "Sélectionnez le dossier à déplacer"
 if (-not (Test-Path $sourceFolder)) {
     Write-Host "Le dossier source n'existe pas."
@@ -44,26 +26,27 @@ if (-not (Test-Path $sourceFolder)) {
 }
 Write-Host "Source choisie : $sourceFolder"
 
-# Sélectionner l'emplacement futur (destination)
-$destinationFolder = Select-Folder "Sélectionnez le dossier de destination"
-if (-not (Test-Path $destinationFolder)) {
+# Dossier de destination « racine »
+$destinationRoot = Select-Folder "Sélectionnez le dossier de destination"
+if (-not (Test-Path $destinationRoot)) {
     Write-Host "Le dossier de destination n'existe pas."
     exit
 }
 Write-Host "Destination choisie : $destinationRoot"
 
-# Write-Host "Dossier source : $sourceFolder"
-# Write-Host "Dossier de destination : $destinationFolder"
-# $confirmation = Read-Host "Confirmez-vous ces choix ? (O/N)"
-# if ($confirmation -notlike "O") {
-#     Write-Host "Opération annulée."
-#     exit
-# }
+# --- Préparation du déplacement ---
 
-# Créer le dossier destination s'il n'existe pas
+# Empêcher source = destination
+if ($sourceFolder -eq $destinationRoot) {
+    Write-Host "Le dossier source et le dossier de destination ne peuvent pas être identiques."
+    exit
+}
+
+# Créer la destination finale (inclut le nom du dossier source)
+$destinationFolder = Join-Path $destinationRoot (Split-Path $sourceFolder -Leaf)
 if (-not (Test-Path $destinationFolder)) {
     try {
-        New-Item -Path $destinationFolder -ItemType Directory -ErrorAction Stop
+        New-Item -Path $destinationFolder -ItemType Directory -Force -ErrorAction Stop
     }
     catch {
         Write-Host -ForegroundColor Red "Erreur lors de la création du dossier de destination : $($_.Exception.Message)"
@@ -71,28 +54,41 @@ if (-not (Test-Path $destinationFolder)) {
     }
 }
 
-# Vérifier si le dossier source et destination ne sont pas les mêmes
-if ($sourceFolder -eq $destinationFolder) {
-    Write-Host "Le dossier source et le dossier de destination ne peuvent pas être identiques."
-    exit
+# --- Déplacement avec indicateur de progression ---
+
+# Récupération de tous les éléments (fichiers et sous-dossiers)
+$items = Get-ChildItem -LiteralPath $sourceFolder -Force
+$total = $items.Count
+$i = 0
+
+foreach ($item in $items) {
+    $i++
+
+    # Construction du chemin cible pour chaque élément
+    $target = Join-Path $destinationFolder $item.Name
+
+    # Déplacement
+    try {
+        Move-Item -LiteralPath $item.FullName -Destination $target -ErrorAction Stop
+        # Mise à jour de la barre de progression
+        Write-Progress `
+            -Activity "Déplacement des éléments" `
+            -Status "$i / $total éléments déplacés" `
+    } catch {
+        Write-Host -ForegroundColor Red "Erreur au déplacement de '$($item.Name)' : $($_.Exception.Message)"
+        exit
+    }
+
 }
 
-# Déplacer le dossier source vers la destination
-$destinationFolder = Join-Path $destinationFolder (Split-Path $sourceFolder -Leaf)
-try {
-    Move-Item -Path $sourceFolder -Destination $destinationFolder -ErrorAction Stop
-}
-catch {
-    Write-Host -ForegroundColor Red "Erreur lors du déplacement du dossier : $($_.Exception.Message)"
-    exit
-}
+# --- Création de la jonction ---
 
-# Créer la jonction
+# Chemins pour la jonction
 $parentFolder = Split-Path $sourceFolder -Parent
 $junctionName = Split-Path $sourceFolder -Leaf
 $junctionPath = Join-Path $parentFolder $junctionName
 
-# Supprimer le dossier original s'il existe encore après le déplacement
+# Suppression de l’ancienne jonction / dossier s’il existe
 if (Test-Path $junctionPath) {
     try {
         Remove-Item $junctionPath -Recurse -Force -ErrorAction Stop
@@ -103,20 +99,23 @@ if (Test-Path $junctionPath) {
     }
 }
 
-# Créer la jonction de manière sécurisée
+# Exécution de mklink pour créer la jonction symbole
 try {
     $mklinkCommand = "mklink /J `"$junctionPath`" `"$destinationFolder`""
-    cmd /c $mklinkCommand
+    cmd /c $mklinkCommand | Out-Null
+
     if ($LASTEXITCODE -eq 0) {
         Write-Host "La jonction a été créée avec succès entre '$junctionPath' et '$destinationFolder'."
-    } else {
-        Write-Host "Une erreur est survenue lors de la création de la jonction."
+    }
+    else {
+        Write-Host -ForegroundColor Red "Erreur lors de la création de la jonction (code $LASTEXITCODE)."
         exit
     }
 }
 catch {
-    Write-Host -ForegroundColor Red "Erreur lors de l'exécution de la commande mklink : $($_.Exception.Message)"
+    Write-Host -ForegroundColor Red "Erreur lors de l'exécution de mklink : $($_.Exception.Message)"
     exit
 }
 
+# Pause finale pour laisser le temps de lire les messages
 pause
