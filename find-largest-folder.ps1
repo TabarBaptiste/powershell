@@ -53,11 +53,21 @@ foreach ($folder in $allFolders) {
 }
 
 # Afficher les 10 plus gros dossiers
+# Afficher les 10 plus gros dossiers
 $results |
     Sort-Object Size -Descending |
     Select-Object -First 10 |
     ForEach-Object {
-        Write-Output ("Dossier : {0} - Taille : {1} Mo" -f $_.Name, $_.Size)
+        $size = $_.Size
+        if ($size -lt 1000) {
+            $unit = "Mo"
+            $displaySize = $size
+        } else {
+            $unit = "Go"
+            $displaySize = [math]::Round($size / 1024, 2)
+        }
+
+        Write-Output ("Dossier : {0} - Taille : {1} {2}" -f $_.Name, $displaySize, $unit)
     }
 
 # Nettoyer la barre de progression
