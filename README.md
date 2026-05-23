@@ -48,6 +48,19 @@ Ce script inverse l’opération précédente :
 
 ---
 
+## 🩺 `diag.ps1` — Diagnostic système complet
+
+Ce script :
+
+* Lance une série de contrôles système (12 sections) et génère un rapport complet.
+* Génère : `$Home\Downloads\Diagnostic_PC.txt`.
+* Sections couvertes : Système, RAM, CPU, Disques, Réseau, Démarrage, Services, Énergie, GPU, Journaux (24h), Mises à jour, Sécurité.
+* Conçu pour être robuste : chaque section s’exécute en job avec un timeout par défaut de 30s (modifiable en tête de script).
+* Utilise `Get-CimInstance`, `Get-NetAdapter`, `Get-WinEvent`, `Get-MpComputerStatus`, entre autres.
+* Exécution : ouvrez PowerShell et lancez `.\diag.ps1` (privilèges administrateur recommandés pour collecter toutes les informations).
+
+---
+
 ## 🧠 Remarques générales
 
 * Tous les scripts utilisent des **interfaces graphiques Windows.Forms** pour faciliter l’usage sans avoir à taper de chemins manuellement.
