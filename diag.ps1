@@ -1,4 +1,4 @@
-﻿# ============================================================
+# ============================================================
 #  Script de diagnostic global Windows - Version robuste
 #  Chaque section a un timeout de 30s et gere les erreurs
 #  Genere : $Home\Downloads\Diagnostic_PC.txt
@@ -16,7 +16,7 @@ Write-Host ""
 "DIAGNOSTIC PC - $(Get-Date -Format 'dd/MM/yyyy HH:mm:ss')" | Out-File $OutputFile -Encoding UTF8
 ("=" * 60) | Out-File $OutputFile -Append -Encoding UTF8
 
-function Run-Section {
+function Invoke-Section {
     param([string]$Label, [scriptblock]$Block, [int]$Timeout = $TimeoutSec)
     Write-Host "  $Label" -ForegroundColor Yellow -NoNewline
     $job = Start-Job -ScriptBlock $Block -ArgumentList $OutputFile, $Separator
@@ -33,7 +33,7 @@ function Run-Section {
 }
 
 # 1 - SYSTEME
-Run-Section "[1/12] Informations systeme..." {
+Invoke-Section "[1/12] Informations systeme..." {
     param($out, $sep)
     try {
         $os   = Get-CimInstance Win32_OperatingSystem -OperationTimeoutSec 15
