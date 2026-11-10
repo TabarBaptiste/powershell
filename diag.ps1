@@ -57,7 +57,7 @@ Invoke-Section "[1/12] Informations systeme..." {
 }
 
 # 2 - RAM
-Run-Section "[2/12] Utilisation RAM..." {
+Invoke-Section "[2/12] Utilisation RAM..." {
     param($out, $sep)
     try {
         $os  = Get-CimInstance Win32_OperatingSystem -OperationTimeoutSec 15
@@ -80,7 +80,7 @@ Run-Section "[2/12] Utilisation RAM..." {
 }
 
 # 3 - CPU
-Run-Section "[3/12] Utilisation CPU..." {
+Invoke-Section "[3/12] Utilisation CPU..." {
     param($out, $sep)
     try {
         "$sep=== 3. CPU ===" | Out-File $out -Append -Encoding UTF8
@@ -96,7 +96,7 @@ Run-Section "[3/12] Utilisation CPU..." {
 }
 
 # 4 - DISQUES
-Run-Section "[4/12] Etat des disques..." {
+Invoke-Section "[4/12] Etat des disques..." {
     param($out, $sep)
     try {
         "$sep=== 4. DISQUES ===" | Out-File $out -Append -Encoding UTF8
@@ -114,7 +114,7 @@ Run-Section "[4/12] Etat des disques..." {
 }
 
 # 5 - RESEAU
-Run-Section "[5/12] Activite reseau..." {
+Invoke-Section "[5/12] Activite reseau..." {
     param($out, $sep)
     try {
         "$sep=== 5. RESEAU ===" | Out-File $out -Append -Encoding UTF8
@@ -136,7 +136,7 @@ Run-Section "[5/12] Activite reseau..." {
 }
 
 # 6 - DEMARRAGE
-Run-Section "[6/12] Applications au demarrage..." {
+Invoke-Section "[6/12] Applications au demarrage..." {
     param($out, $sep)
     try {
         "$sep=== 6. DEMARRAGE ===" | Out-File $out -Append -Encoding UTF8
@@ -167,7 +167,7 @@ Run-Section "[6/12] Applications au demarrage..." {
 }
 
 # 7 - SERVICES
-Run-Section "[7/12] Services..." {
+Invoke-Section "[7/12] Services..." {
     param($out, $sep)
     try {
         "$sep=== 7. SERVICES ===" | Out-File $out -Append -Encoding UTF8
@@ -183,7 +183,7 @@ Run-Section "[7/12] Services..." {
 }
 
 # 8 - ENERGIE
-Run-Section "[8/12] Energie & alimentation..." {
+Invoke-Section "[8/12] Energie & alimentation..." {
     param($out, $sep)
     try {
         "$sep=== 8. ENERGIE ===" | Out-File $out -Append -Encoding UTF8
@@ -202,7 +202,7 @@ Run-Section "[8/12] Energie & alimentation..." {
 }
 
 # 9 - GPU
-Run-Section "[9/12] Carte graphique..." {
+Invoke-Section "[9/12] Carte graphique..." {
     param($out, $sep)
     try {
         "$sep=== 9. GPU ===" | Out-File $out -Append -Encoding UTF8
@@ -214,7 +214,7 @@ Run-Section "[9/12] Carte graphique..." {
 }
 
 # 10 - ERREURS
-Run-Section "[10/12] Journaux erreurs..." {
+Invoke-Section "[10/12] Journaux erreurs..." {
     param($out, $sep)
     "$sep=== 10. ERREURS (24h) ===" | Out-File $out -Append -Encoding UTF8
     $cutoff = (Get-Date).AddHours(-24)
@@ -230,7 +230,7 @@ Run-Section "[10/12] Journaux erreurs..." {
 }
 
 # 11 - MISES A JOUR (Get-HotFix remplace par WMI direct - moins sujet au blocage)
-Run-Section "[11/12] Mises a jour..." {
+Invoke-Section "[11/12] Mises a jour..." {
     param($out, $sep)
     "$sep=== 11. MISES A JOUR ===" | Out-File $out -Append -Encoding UTF8
     try {
@@ -241,7 +241,7 @@ Run-Section "[11/12] Mises a jour..." {
 }
 
 # 12 - SECURITE
-Run-Section "[12/12] Securite..." {
+Invoke-Section "[12/12] Securite..." {
     param($out, $sep)
     try {
         "$sep=== 12. SECURITE ===" | Out-File $out -Append -Encoding UTF8
