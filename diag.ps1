@@ -167,14 +167,14 @@ Run-Section "[6/12] Applications au demarrage..." {
 }
 
 # 7 - SERVICES
-Run-Section "[7/12] Services..." -Timeout 90 {
+Run-Section "[7/12] Services..." {
     param($out, $sep)
     try {
         "$sep=== 7. SERVICES ===" | Out-File $out -Append -Encoding UTF8
         "`n--- Services tiers en cours ---" | Out-File $out -Append -Encoding UTF8
-        Get-Service | Where-Object {$_.Status -eq 'Running'} | ForEach-Object {
-            $w = Get-CimInstance Win32_Service -Filter "Name='$($_.Name)'" -OperationTimeoutSec 5 -EA SilentlyContinue
-            [PSCustomObject]@{Nom=$_.Name; Affichage=$_.DisplayName; Mode=$w.StartMode; Path=$w.PathName}
+        # Une seule requete CIM pour tous les services (au lieu d'une par service)
+        Get-CimInstance Win32_Service -Filter "State='Running'" -OperationTimeoutSec 20 | ForEach-Object {
+            [PSCustomObject]@{Nom=$_.Name; Affichage=$_.DisplayName; Mode=$_.StartMode; Path=$_.PathName}
         } | Where-Object {$_.Path -notmatch 'system32|SysWOW64|Microsoft' -or !$_.Path} |
             Format-Table -AutoSize -Wrap | Out-File $out -Append -Encoding UTF8
         "`n--- Total par etat ---" | Out-File $out -Append -Encoding UTF8

@@ -1,121 +1,116 @@
-# Fonction pour sélectionner un dossier via une boîte de dialogue
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
-Write-Host "Le script a démarré"
+# ============================================================
+#  Deplace un dossier vers un autre disque et laisse une jonction
+#  NTFS a l'ancien emplacement (les applications continuent de
+#  trouver le dossier a son chemin d'origine).
+#
+#    .\move_and_create_junction.ps1                       -> boites de dialogue
+#    .\move_and_create_junction.ps1 -Source C:\X -Destination E:\Archives
+#
+#  Securite : copie avec robocopy, verification (nombre de fichiers +
+#  taille), puis seulement suppression de l'original. En cas de
+#  probleme, l'original n'est jamais supprime.
+# ============================================================
 
-function Select-Folder($prompt) {
+param(
+    [string]$Source,
+    [string]$Destination,
+    [switch]$Force   # ne pas demander confirmation avant de supprimer l'original
+)
+
+$ErrorActionPreference = 'Stop'
+
+function Select-Folder($prompt, $newFolder = $true) {
     Add-Type -AssemblyName System.Windows.Forms
-    $folderBrowser = New-Object System.Windows.Forms.FolderBrowserDialog
-    $folderBrowser.Description = $prompt
-    $folderBrowser.ShowNewFolderButton = $true
-    if ($folderBrowser.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
-        return $folderBrowser.SelectedPath
-    }
-    else {
-        Write-Host "Aucun dossier sélectionné."
-        exit
-    }
+    $dlg = New-Object System.Windows.Forms.FolderBrowserDialog
+    $dlg.Description = $prompt
+    $dlg.ShowNewFolderButton = $newFolder
+    if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { return $dlg.SelectedPath }
+    Write-Host "Aucun dossier selectionne."; exit 1
 }
 
-# --- Sélection des dossiers ---
+function Stop-WithError($msg) { Write-Host $msg -ForegroundColor Red; pause; exit 1 }
 
-# Dossier source
-$sourceFolder = Select-Folder "Sélectionnez le dossier à déplacer"
-if (-not (Test-Path $sourceFolder)) {
-    Write-Host "Le dossier source n'existe pas."
-    exit
-}
-Write-Host "Source choisie : $sourceFolder"
-
-# Dossier de destination « racine »
-$destinationRoot = Select-Folder "Sélectionnez le dossier de destination"
-if (-not (Test-Path $destinationRoot)) {
-    Write-Host "Le dossier de destination n'existe pas."
-    exit
-}
-Write-Host "Destination choisie : $destinationRoot"
-
-# --- Préparation du déplacement ---
-
-# Empêcher source = destination
-if ($sourceFolder -eq $destinationRoot) {
-    Write-Host "Le dossier source et le dossier de destination ne peuvent pas être identiques."
-    exit
-}
-
-# Créer la destination finale (inclut le nom du dossier source)
-$destinationFolder = Join-Path $destinationRoot (Split-Path $sourceFolder -Leaf)
-if (-not (Test-Path $destinationFolder)) {
-    try {
-        New-Item -Path $destinationFolder -ItemType Directory -Force -ErrorAction Stop
+# Compte les fichiers et additionne leur taille, sans suivre les jonctions
+function Get-FolderStats($path) {
+    $count = 0L; $size = 0L
+    $stack = New-Object System.Collections.Stack
+    $stack.Push([IO.DirectoryInfo]$path)
+    while ($stack.Count) {
+        $d = $stack.Pop()
+        try { $entries = $d.GetFileSystemInfos() } catch { continue }
+        foreach ($e in $entries) {
+            if ($e.Attributes -band [IO.FileAttributes]::ReparsePoint) { continue }
+            if ($e -is [IO.DirectoryInfo]) { $stack.Push($e) } else { $count++; $size += $e.Length }
+        }
     }
-    catch {
-        Write-Host -ForegroundColor Red "Erreur lors de la création du dossier de destination : $($_.Exception.Message)"
-        exit
-    }
+    [PSCustomObject]@{ Count = $count; Size = $size }
 }
 
-# --- Déplacement avec indicateur de progression ---
+# --- Selection
+if (-not $Source)      { $Source      = Select-Folder "Selectionnez le dossier a deplacer" $false }
+if (-not $Destination) { $Destination = Select-Folder "Selectionnez le dossier de destination (sur un autre disque)" }
+$Source      = [IO.Path]::GetFullPath($Source.TrimEnd('\'))
+$Destination = [IO.Path]::GetFullPath($Destination.TrimEnd('\'))
+$target      = Join-Path $Destination (Split-Path $Source -Leaf)
 
-# Récupération de tous les éléments (fichiers et sous-dossiers)
-$items = Get-ChildItem -LiteralPath $sourceFolder -Force
-$total = $items.Count
-$i = 0
+Write-Host "Source      : $Source"
+Write-Host "Destination : $target"
 
-foreach ($item in $items) {
-    $i++
+# --- Verifications
+if (-not (Test-Path -LiteralPath $Source -PathType Container)) { Stop-WithError "Le dossier source n'existe pas." }
+if (-not (Test-Path -LiteralPath $Destination -PathType Container)) { Stop-WithError "Le dossier de destination n'existe pas." }
+$srcItem = Get-Item -LiteralPath $Source -Force
+if ($srcItem.Attributes -band [IO.FileAttributes]::ReparsePoint) { Stop-WithError "La source est deja une jonction / un lien." }
+if ($Source -eq [IO.Path]::GetPathRoot($Source).TrimEnd('\')) { Stop-WithError "Impossible de deplacer la racine d'un disque." }
+if (($Destination + '\').StartsWith($Source + '\', 'OrdinalIgnoreCase')) { Stop-WithError "La destination est a l'interieur de la source." }
+if (Test-Path -LiteralPath $target) { Stop-WithError "'$target' existe deja : rien n'est fait pour ne rien ecraser." }
 
-    # Construction du chemin cible pour chaque élément
-    $target = Join-Path $destinationFolder $item.Name
-
-    # Déplacement
-    try {
-        Move-Item -LiteralPath $item.FullName -Destination $target -ErrorAction Stop
-        # Mise à jour de la barre de progression
-        Write-Progress `
-            -Activity "Déplacement des éléments" `
-            -Status "$i / $total éléments déplacés" `
-    } catch {
-        Write-Host -ForegroundColor Red "Erreur au déplacement de '$($item.Name)' : $($_.Exception.Message)"
-        exit
-    }
-
+$srcRoot = [IO.Path]::GetPathRoot($Source); $dstRoot = [IO.Path]::GetPathRoot($Destination)
+if ($srcRoot -eq $dstRoot) { Write-Host "Attention : source et destination sont sur le meme disque, aucun espace ne sera libere." -ForegroundColor Yellow }
+$dstDrive = New-Object IO.DriveInfo $dstRoot
+if ($dstDrive.DriveType -ne 'Fixed' -and $dstDrive.DriveType -ne 'Removable') {
+    Stop-WithError "Une jonction NTFS ne peut pointer que vers un disque local (pas un lecteur reseau)."
+}
+if ($dstDrive.DriveFormat -ne 'NTFS') {
+    Write-Host "Attention : le disque de destination est en $($dstDrive.DriveFormat). Les jonctions fonctionnent mieux vers du NTFS." -ForegroundColor Yellow
 }
 
-# --- Création de la jonction ---
+Write-Host "Calcul de la taille de la source..."
+$before = Get-FolderStats $Source
+Write-Host ("  {0} fichiers, {1:N2} Go" -f $before.Count, ($before.Size / 1GB))
+if ($dstDrive.AvailableFreeSpace -lt $before.Size * 1.05) { Stop-WithError ("Pas assez de place sur {0} ({1:N2} Go libres)." -f $dstRoot, ($dstDrive.AvailableFreeSpace / 1GB)) }
 
-# Chemins pour la jonction
-$parentFolder = Split-Path $sourceFolder -Parent
-$junctionName = Split-Path $sourceFolder -Leaf
-$junctionPath = Join-Path $parentFolder $junctionName
+Write-Host "Fermez les applications qui utilisent ce dossier avant de continuer." -ForegroundColor Yellow
 
-# Suppression de l’ancienne jonction / dossier s’il existe
-if (Test-Path $junctionPath) {
-    try {
-        Remove-Item $junctionPath -Recurse -Force -ErrorAction Stop
-    }
-    catch {
-        Write-Host -ForegroundColor Red "Erreur lors de la suppression de l'ancien dossier : $($_.Exception.Message)"
-        exit
-    }
+# --- Copie
+Write-Host "`nCopie en cours (robocopy)..." -ForegroundColor Cyan
+robocopy $Source $target /E /COPY:DAT /DCOPY:DAT /XJ /R:1 /W:1 /MT:8 /NFL /NDL /NJH /NP
+if ($LASTEXITCODE -ge 8) { Stop-WithError "Robocopy a signale des erreurs (code $LASTEXITCODE). L'original est intact ; supprimez '$target' a la main." }
+
+# --- Verification
+$after = Get-FolderStats $target
+Write-Host ("Copie : {0} fichiers, {1:N2} Go" -f $after.Count, ($after.Size / 1GB))
+if ($after.Count -ne $before.Count -or $after.Size -ne $before.Size) {
+    Stop-WithError "La copie ne correspond pas a l'original (fichiers verrouilles ?). L'original est intact ; supprimez '$target' a la main."
 }
 
-# Exécution de mklink pour créer la jonction symbole
-try {
-    $mklinkCommand = "mklink /J `"$junctionPath`" `"$destinationFolder`""
-    cmd /c $mklinkCommand | Out-Null
+# --- Bascule : l'original est renomme (instantane), la jonction est creee, puis l'original est supprime
+$backup = "$Source.__ancien_$(Get-Date -Format yyyyMMddHHmmss)"
+try { Rename-Item -LiteralPath $Source -NewName (Split-Path $backup -Leaf) }
+catch { Stop-WithError "Impossible de renommer l'original (un fichier est ouvert ?) : $($_.Exception.Message). La copie reste dans '$target'." }
 
-    if ($LASTEXITCODE -eq 0) {
-        Write-Host "La jonction a été créée avec succès entre '$junctionPath' et '$destinationFolder'."
-    }
-    else {
-        Write-Host -ForegroundColor Red "Erreur lors de la création de la jonction (code $LASTEXITCODE)."
-        exit
-    }
+cmd /c mklink /J "`"$Source`"" "`"$target`"" | Out-Null
+if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $Source)) {
+    Rename-Item -LiteralPath $backup -NewName (Split-Path $Source -Leaf)
+    Stop-WithError "Echec de la creation de la jonction : l'original a ete remis en place."
 }
-catch {
-    Write-Host -ForegroundColor Red "Erreur lors de l'exécution de mklink : $($_.Exception.Message)"
-    exit
-}
+Write-Host "Jonction creee : $Source -> $target" -ForegroundColor Green
 
-# Pause finale pour laisser le temps de lire les messages
+if (-not $Force) {
+    $r = Read-Host "Supprimer definitivement l'original renomme '$backup' ? (o/N)"
+    if ($r -notmatch '^[oOyY]') { Write-Host "Original conserve dans '$backup'. Supprimez-le quand vous aurez verifie que tout fonctionne."; pause; exit 0 }
+}
+cmd /c rd /s /q "\\?\$backup"
+if (Test-Path -LiteralPath $backup) { Write-Host "Certains fichiers de '$backup' n'ont pas pu etre supprimes." -ForegroundColor Yellow }
+else { Write-Host ("Termine. {0:N2} Go liberes sur {1}" -f ($before.Size / 1GB), $srcRoot) -ForegroundColor Green }
 pause

@@ -1,7 +1,14 @@
-# ============================================================
+﻿# ============================================================
 #  Diagnostic ciblé - Java, .NET Runtime, démarrage
 #  Génère : $Home\Downloads\Diag2_Cible.txt
 # ============================================================
+
+#  Par défaut ce script ne modifie rien. Pour désactiver aussi au
+#  démarrage les applis de la liste $toDisable (section 3) :
+#    .\diag2_cible.ps1 -DesactiverDemarrage
+# ============================================================
+
+param([switch]$DesactiverDemarrage)
 
 $OutputFile = "$Home\Downloads\Diag2_Cible.txt"
 $Separator  = "`n" + ("=" * 60) + "`n"
@@ -147,7 +154,9 @@ foreach ($appName in $toDisable) {
         if ($prop) {
             # Octet 0 = 03 = désactivé (Task Manager), 02 aussi utilisé
             $val = $prop.$appName
-            if ($val[0] -ne 3) {
+            if ($val[0] -ne 3 -and -not $DesactiverDemarrage) {
+                "  [ACTIVÉ - non modifié, utiliser -DesactiverDemarrage] $appName" | Out-File $OutputFile -Append -Encoding UTF8
+            } elseif ($val[0] -ne 3) {
                 $val[0] = 3
                 Set-ItemProperty -Path $approvedPath -Name $appName -Value $val -ErrorAction SilentlyContinue
                 "  [DÉSACTIVÉ] $appName" | Out-File $OutputFile -Append -Encoding UTF8

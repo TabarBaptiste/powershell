@@ -1,74 +1,83 @@
-Add-Type -AssemblyName System.Windows.Forms
+# ============================================================
+#  Liste les sous-dossiers les plus lourds d'un dossier.
+#
+#    .\find-largest-folder.ps1                 -> boite de dialogue
+#    .\find-largest-folder.ps1 -Path C:\Users\bapti -Top 15
+#
+#  - Compte aussi les fichiers caches / systeme.
+#  - Ne suit pas les jonctions : un dossier deplace via
+#    move_and_create_junction.ps1 est affiche avec sa cible mais
+#    compte 0 (il n'occupe plus de place sur ce disque).
+#  - Ignore les fichiers OneDrive "en ligne uniquement" (pas sur le disque).
+# ============================================================
 
-# Boîte de dialogue pour sélectionner le dossier
-$folderBrowser = New-Object System.Windows.Forms.FolderBrowserDialog
-$folderBrowser.Description = "Sélectionnez le dossier à trier"
-$folderBrowser.ShowNewFolderButton = $false
+param(
+    [string]$Path,
+    [int]$Top = 10
+)
 
-if ($folderBrowser.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
-    $directoryPath = $folderBrowser.SelectedPath
-} else {
-    Write-Host "Opération annulée par l'utilisateur."
-    exit
+if (-not $Path) {
+    Add-Type -AssemblyName System.Windows.Forms
+    $dlg = New-Object System.Windows.Forms.FolderBrowserDialog
+    $dlg.Description = "Selectionnez le dossier a analyser"
+    $dlg.ShowNewFolderButton = $false
+    if ($dlg.ShowDialog() -ne [System.Windows.Forms.DialogResult]::OK) { Write-Host "Operation annulee."; exit }
+    $Path = $dlg.SelectedPath
 }
 
-# Vérifier l'existence du chemin
-if (-Not (Test-Path $directoryPath)) {
-    Write-Error "Le chemin spécifié n'existe pas ou n'est pas accessible."
-    exit
+if (-not (Test-Path -LiteralPath $Path -PathType Container)) {
+    Write-Error "Le chemin '$Path' n'existe pas ou n'est pas accessible."
+    exit 1
 }
 
-# Récupérer tous les dossiers enfants
-$allFolders = Get-ChildItem -Directory -Path $directoryPath -ErrorAction SilentlyContinue
-$total = $allFolders.Count
-$index = 0
-$results = @()
+$Reparse = [IO.FileAttributes]::ReparsePoint
+$Cloud   = 0x1000 -bor 0x400000 -bor 0x40000   # Offline | RecallOnDataAccess | RecallOnOpen
 
-# Parcourir chaque dossier et calculer sa taille
-foreach ($folder in $allFolders) {
-    $index++
-
-    Write-Progress `
-        -Activity "Analyse des dossiers" `
-        -Status "$index / $total analysés" `
-        # -PercentComplete (($index / $total) * 100)
-
-    try {
-        $folderSize = (Get-ChildItem -Path $folder.FullName -Recurse -File -ErrorAction SilentlyContinue |
-            Measure-Object -Property Length -Sum).Sum
+function Get-FolderStats([IO.DirectoryInfo]$root) {
+    $count = 0L; $size = 0L; $denied = 0
+    $stack = New-Object System.Collections.Stack
+    $stack.Push($root)
+    while ($stack.Count) {
+        $d = $stack.Pop()
+        try { $entries = $d.GetFileSystemInfos() } catch { $denied++; continue }
+        foreach ($e in $entries) {
+            if ($e.Attributes -band $Reparse) { continue }
+            if ($e -is [IO.DirectoryInfo]) { $stack.Push($e); continue }
+            if ([int]$e.Attributes -band $Cloud) { continue }
+            $count++; $size += $e.Length
+        }
     }
-    catch {
-        Write-Warning "Impossible d'accéder à $($folder.FullName) : $($_.Exception.Message)"
+    [PSCustomObject]@{ Count = $count; Size = $size; Denied = $denied }
+}
+
+function Format-Size([long]$b) {
+    if ($b -ge 1GB) { "{0,8:N2} Go" -f ($b / 1GB) } else { "{0,8:N0} Mo" -f ($b / 1MB) }
+}
+
+$folders = @(Get-ChildItem -LiteralPath $Path -Directory -Force -ErrorAction SilentlyContinue)
+$results = New-Object System.Collections.Generic.List[object]
+$i = 0
+foreach ($f in $folders) {
+    $i++
+    Write-Progress -Activity "Analyse de $Path" -Status "$i / $($folders.Count) : $($f.Name)" -PercentComplete ($i * 100 / [math]::Max(1, $folders.Count))
+    if ($f.Attributes -band $Reparse) {
+        $results.Add([PSCustomObject]@{ Name = $f.FullName; Size = 0L; Count = 0L; Note = "[jonction -> $(@($f.Target)[0])]" })
         continue
     }
+    $s = Get-FolderStats $f
+    $note = if ($s.Denied) { "($($s.Denied) dossier(s) inaccessible(s), relancer en admin)" } else { "" }
+    $results.Add([PSCustomObject]@{ Name = $f.FullName; Size = $s.Size; Count = $s.Count; Note = $note })
+}
+Write-Progress -Activity "Analyse terminee" -Completed
 
-    # Vérifier si le dossier est une jonction
-    $isJunction = (Get-Item $folder.FullName -ErrorAction SilentlyContinue).Attributes -match "ReparsePoint"
-    $junctionIndicator = if ($isJunction) { " [OK]" } else { "" }
-
-    $results += [PSCustomObject]@{
-        Name = $folder.FullName + $junctionIndicator
-        Size = [math]::Round($folderSize / 1MB, 2)
-    }
+# Fichiers poses directement dans le dossier
+$loose = @(Get-ChildItem -LiteralPath $Path -File -Force -ErrorAction SilentlyContinue | Where-Object { -not ([int]$_.Attributes -band $Cloud) })
+if ($loose.Count) {
+    $results.Add([PSCustomObject]@{ Name = "$Path (fichiers a la racine)"; Size = [long]($loose | Measure-Object Length -Sum).Sum; Count = [long]$loose.Count; Note = "" })
 }
 
-# Afficher les 10 plus gros dossiers
-# Afficher les 10 plus gros dossiers
-$results |
-    Sort-Object Size -Descending |
-    Select-Object -First 10 |
-    ForEach-Object {
-        $size = $_.Size
-        if ($size -lt 1000) {
-            $unit = "Mo"
-            $displaySize = $size
-        } else {
-            $unit = "Go"
-            $displaySize = [math]::Round($size / 1024, 2)
-        }
-
-        Write-Output ("Dossier : {0} - Taille : {1} {2}" -f $_.Name, $displaySize, $unit)
-    }
-
-# Nettoyer la barre de progression
-Write-Progress -Activity "Analyse terminée" -Completed
+$total = ($results | Measure-Object Size -Sum).Sum
+Write-Host ("`nTotal : {0}   ({1} sous-dossiers)`n" -f (Format-Size $total).Trim(), $folders.Count) -ForegroundColor Cyan
+$results | Sort-Object Size -Descending | Select-Object -First $Top | ForEach-Object {
+    "{0}  {1,9:N0} fichiers  {2} {3}" -f (Format-Size $_.Size), $_.Count, $_.Name, $_.Note
+}
