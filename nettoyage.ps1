@@ -5,6 +5,7 @@
 #    Execution reelle             : .\nettoyage.ps1
 #  Journal : $Home\Downloads\Nettoyage_PC.txt
 #
+#  - Docker n'est pas touche (aucune donnee Docker supprimee)
 #  - Donnees non regenerables -> CORBEILLE (rollback possible)
 #  - node_modules / .next / caches / temporaires -> suppression definitive
 # ============================================================
@@ -70,15 +71,11 @@ function Find-DepDirs($dir) {
 if ($Simulation) { Write-Host "`n*** MODE SIMULATION : rien ne sera supprime ***" -ForegroundColor Yellow }
 
 # ------------------------------------------------------------
-Section "1. Docker (images, conteneurs, volumes)"
-$dockerDisk = "$U\AppData\Local\Docker\wsl\disk\docker_data.vhdx"
-if (-not $Simulation) {
-    Get-Process 'Docker Desktop', 'com.docker.backend', 'com.docker.build', 'com.docker.service' -EA SilentlyContinue | Stop-Process -Force
-    Start-Sleep -Seconds 3
-    wsl --shutdown
-    Start-Sleep -Seconds 3
-}
-Remove-Hard $dockerDisk   # Docker Desktop recree un disque vide au prochain lancement
+Section "1. Docker (non modifie)"
+# Docker n'est plus nettoye par ce script : le disque docker_data.vhdx contient
+# tes images, conteneurs et volumes, et supprimer ce fichier les efface.
+# Pour liberer de la place sans tout perdre : docker system prune
+Write-Host "  [conserve]  Docker : aucune suppression (voir 'docker system prune')" -ForegroundColor DarkGray
 
 # ------------------------------------------------------------
 Section "2. WSL Ubuntu"
